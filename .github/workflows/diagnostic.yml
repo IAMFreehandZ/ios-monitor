@@ -83,6 +83,7 @@ jobs:
             build.log
           retention-days: 14
   simulator:
+    needs: diagnostic
     runs-on: macos-15
     timeout-minutes: 30
     env:
@@ -114,6 +115,7 @@ jobs:
           with open(os.environ['GITHUB_ENV'], 'a') as env: env.write('SIMULATOR_UDID=' + chosen['udid'] + '\n')
           PY
       - name: UI smoke test
+        timeout-minutes: 15
         run: |
           set -euo pipefail
           xcodebuild -project MonitorDiagnostics.xcodeproj -scheme MonitorDiagnostics -configuration Debug -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" -derivedDataPath build/Simulator -resultBundlePath build/Smoke.xcresult -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO test 2>&1 | tee ui-tests.log
