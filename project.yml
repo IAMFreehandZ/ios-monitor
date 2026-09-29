@@ -47,9 +47,24 @@ targets:
         INFOPLIST_FILE: Widget/Info.plist
         APPLICATION_EXTENSION_API_ONLY: YES
         SKIP_INSTALL: YES
+  MonitorUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.iamfreehandz.iosmonitor.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: MonitorDiagnostics
+    dependencies:
+      - target: MonitorDiagnostics
 schemes:
   MonitorDiagnostics:
     build:
       targets:
         MonitorDiagnostics: all
         MonitorActivity: all
+    test:
+      targets:
+        - MonitorUITests
