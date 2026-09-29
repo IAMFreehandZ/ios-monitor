@@ -57,7 +57,7 @@ final class BackgroundServices: NSObject, CLLocationManagerDelegate {
         if audio != audioWanted {
             audioWanted = audio
             recoveryAttempts = 0
-            if audio { startAudio(); startHealthTimer() } else { stopAudio() }
+            if audio { startAudio(); if audioWanted { startHealthTimer() } } else { stopAudio() }
         }
         if enabledLocation != locationWanted {
             locationWanted = enabledLocation
@@ -153,17 +153,22 @@ final class BackgroundServices: NSObject, CLLocationManagerDelegate {
         }
     }
 
-    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        event?("location_authorization", locationAuthorization)
-        if locationWanted { enableLocation() }
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.event?("location_authorization", self.locationAuthorization)
+            if self.locationWanted { self.enableLocation() }
+        }
     }
 
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         // Record execution evidence without retaining location coordinates.
-        event?("location_callback", "count=\(locations.count)")
+        let count = locations.count
+        Task { @MainActor [weak self] in self?.event?("location_callback", "count=\(count)") }
     }
 
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        event?("location_error", error.localizedDescription)
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        let detail = error.localizedDescription
+        Task { @MainActor [weak self] in self?.event?("location_error", detail) }
     }
 }

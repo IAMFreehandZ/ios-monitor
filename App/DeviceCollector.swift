@@ -52,7 +52,7 @@ final class DeviceCollector {
     }
 
     func sample(sequence: Int, startedAt: Double) -> DeviceSample {
-        let now = ProcessInfo.processInfo.systemUptime
+        let now = DeviceClock.now
         let interval = previousTime.map { now - $0 }
         let host = mach_host_self()
         defer { mach_port_deallocate(mach_task_self_, host) }

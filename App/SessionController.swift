@@ -34,7 +34,7 @@ final class SessionController: ObservableObject {
         services.event = { [weak self] name, detail in self?.recordEvent(name, detail) }
         publisher.event = { [weak self] name, detail in self?.recordEvent(name, detail) }
         let center = NotificationCenter.default
-        for (notification, name) in [(UIApplication.didEnterBackgroundNotification, "app_background"), (UIApplication.willEnterForegroundNotification, "app_foreground"), (UIApplication.willTerminateNotification, "app_will_terminate"), (ProcessInfo.powerStateDidChangeNotification, "power_state_changed")] {
+        for (notification, name) in [(UIApplication.didEnterBackgroundNotification, "app_background"), (UIApplication.willEnterForegroundNotification, "app_foreground"), (UIApplication.willTerminateNotification, "app_will_terminate"), (Notification.Name.NSProcessInfoPowerStateDidChange, "power_state_changed")] {
             observations.append(center.addObserver(forName: notification, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in
                     guard let self else { return }
@@ -55,7 +55,7 @@ final class SessionController: ObservableObject {
         recorder = nil; latest = nil; frozen = false; sequence = 0; recentEvents = []
         collector.reset()
         lastPublishedAt = -Double.infinity
-        let start = ProcessInfo.processInfo.systemUptime
+        let start = DeviceClock.now
         let duration = Double(minutes * 60)
         timeline = SessionTimeline(start: start, duration: duration)
         let id = UUID()
@@ -66,8 +66,9 @@ final class SessionController: ObservableObject {
         running = true
         UIDevice.current.isBatteryMonitoringEnabled = true
         recordEvent("session_start", "id=\(id); duration=\(duration); audio=\(audioEnabled); location=\(locationEnabled)")
-        services.configure(audio: audioEnabled, location: locationEnabled)
         guard running else { return }
+        services.configure(audio: audioEnabled, location: locationEnabled)
+        guard running else { services.stop(); return }
         publisher.start(id: id, duration: duration)
         tick()
         guard running else { return }
@@ -81,7 +82,7 @@ final class SessionController: ObservableObject {
         guard running, !stopping, let timeline else { return }
         stopping = true; running = false; ready = false; frozen = false
         timer?.invalidate(); timer = nil
-        let observedElapsed = max(0, ProcessInfo.processInfo.systemUptime - timeline.start)
+        let observedElapsed = max(0, DeviceClock.now - timeline.start)
         recordEvent("session_stop", "reason=\(reason); observedElapsed=\(observedElapsed)")
         services.stop()
         audioRunning = false
@@ -111,13 +112,14 @@ final class SessionController: ObservableObject {
         guard running else { return }
         recordEvent("background_preferences", "audio=\(audioEnabled); location=\(locationEnabled)")
         services.configure(audio: audioEnabled, location: locationEnabled)
+        guard running else { services.stop(); return }
         audioRunning = services.audioRunning
         authorization = services.locationAuthorization
     }
 
     private func tick() {
         guard running, let timeline else { return }
-        let now = ProcessInfo.processInfo.systemUptime
+        let now = DeviceClock.now
         if timeline.expired(at: now) { stop(reason: "duration_complete"); return }
         guard !frozen else { return }
         // Foreground callbacks and timer callbacks must not create burst catch-up samples.
@@ -145,7 +147,7 @@ final class SessionController: ObservableObject {
         audioRunning = services.audioRunning
         authorization = services.locationAuthorization
         guard let recorder, let timeline else { return }
-        do { try recorder.event(name: name, detail: detail, elapsed: max(0, ProcessInfo.processInfo.systemUptime - timeline.start)) }
+        do { try recorder.event(name: name, detail: detail, elapsed: max(0, DeviceClock.now - timeline.start)) }
         catch {
             message = "Event recording failed: \(error.localizedDescription)"
             if running && !stopping { stop(reason: "recording_error") }
