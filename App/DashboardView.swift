@@ -111,8 +111,16 @@ struct DashboardView: View {
                 Label("Network", systemImage: "network").font(.headline)
                 if let error = sample.networkError { Text(error).font(.caption).foregroundStyle(.secondary) }
                 if sample.interfaces.isEmpty { Text("No readable interface counters").font(.caption).foregroundStyle(.secondary) }
-                let active = sample.interfaces.filter { ($0.rx.value ?? 0) > 0 || ($0.tx.value ?? 0) > 0 }
-                if active.isEmpty && !sample.interfaces.isEmpty {
+                let summary = NetworkActivitySummary(readings: sample.interfaces.flatMap { [$0.rx, $0.tx] })
+                let active = sample.interfaces.filter { NetworkActivitySummary(readings: [$0.rx, $0.tx]).hasTraffic }
+                if summary.warmingUp {
+                    Text("Collecting network baselines…").font(.caption).foregroundStyle(.secondary)
+                }
+                if summary.missingReadings {
+                    Text("Some interface rates are not available. Expand the list for details.")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+                if summary.isMeasuredIdle {
                     Text("No traffic in this sample").font(.caption).foregroundStyle(.secondary)
                 }
                 ForEach(active) { interface in interfaceRow(interface) }

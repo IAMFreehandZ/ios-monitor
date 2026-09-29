@@ -113,10 +113,11 @@ final class SessionRecorder {
         }
     }
 
-    func finish(reason: String, duration: Double) throws -> RecordingSummary {
+    func finish(reason: String, duration: Double, failure: String? = nil) throws -> RecordingSummary {
         try handle?.synchronize()
         try handle?.close(); handle = nil
-        let summary = RecordingSummary(sessionID: id, endedAt: Date(), stopReason: reason, recordingDurationSeconds: duration, tailUnknown: false, sampleCount: elapsedTimes.count, validCPUSamples: validCPU, validRAMSamples: validRAM, continuity: ContinuitySummary(elapsedTimes: elapsedTimes, recordingDuration: duration), lastSampleAt: lastSampleAt, note: "Actual device counter access and background behavior require user review. Activity submission completion is not proof of rendering.")
+        let note = failure.map { "Recording error: \($0). Partial recording; review the retained samples." } ?? "Actual device counter access and background behavior require user review. Activity submission completion is not proof of rendering."
+        let summary = RecordingSummary(sessionID: id, endedAt: Date(), stopReason: reason, recordingDurationSeconds: duration, tailUnknown: false, sampleCount: elapsedTimes.count, validCPUSamples: validCPU, validRAMSamples: validRAM, continuity: ContinuitySummary(elapsedTimes: elapsedTimes, recordingDuration: duration), lastSampleAt: lastSampleAt, note: note)
         try Self.encoder().encode(summary).write(to: folder.appendingPathComponent("summary.json"), options: .atomic)
         return summary
     }

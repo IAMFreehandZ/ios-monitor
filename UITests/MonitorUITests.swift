@@ -13,10 +13,12 @@ final class MonitorUITests: XCTestCase {
         settings.tap()
         let location = app.switches["location-mode"]
         XCTAssertTrue(location.waitForExistence(timeout: 5))
-        if location.value as? String == "1" { location.tap() }
+        setSwitch(location, enabled: false)
         let audio = app.switches["audio-mode"]
-        if audio.value as? String == "1" { audio.tap() }
+        setSwitch(audio, enabled: false)
         capture(app, "Settings")
+        app.tabBars.buttons["Sessions"].tap()
+        let initialRecordings = app.buttons.matching(identifier: "saved-session").count
 
         app.terminate()
         app.launch()
@@ -52,13 +54,25 @@ final class MonitorUITests: XCTestCase {
         XCTAssertTrue(app.buttons["export-session"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["summary-sample-count"].exists)
         capture(app, "Session")
+        app.navigationBars["Session"].buttons.element(boundBy: 0).tap()
 
         app.tabBars.buttons["Monitor"].tap()
         start.tap()
         XCTAssertTrue(stop.waitForExistence(timeout: 5))
         stop.tap()
         app.tabBars.buttons["Sessions"].tap()
-        XCTAssertEqual(app.buttons.matching(identifier: "saved-session").count, 2)
+        XCTAssertEqual(app.buttons.matching(identifier: "saved-session").count, initialRecordings + 2)
+    }
+
+    @MainActor
+    private func setSwitch(_ element: XCUIElement, enabled: Bool) {
+        let expected = enabled ? "1" : "0"
+        if element.value as? String != expected {
+            // SwiftUI exposes the whole labelled row as the switch frame.
+            // Target the actual control at the trailing edge of that row.
+            element.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        }
+        XCTAssertEqual(element.value as? String, expected)
     }
 
     @MainActor

@@ -43,6 +43,11 @@ struct DiagnosticsView: View {
 
     var body: some View {
         Form {
+            if let error = session.recordingError {
+                Section("Recording error") {
+                    Text(error).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
+                }
+            }
             Section("Session") {
                 LabeledContent("Status", value: session.message)
                 LabeledContent("Background mode", value: session.backgroundMode)

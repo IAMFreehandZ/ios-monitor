@@ -12,7 +12,9 @@ final class SessionController: ObservableObject {
     @Published var locationEnabled = true { didSet { savePreferences(); applyModes() } }
     @Published var latest: DeviceSample?
     @Published var sessions: [SavedSession] = []
-    @Published var message = "Preparing monitor"
+    @Published private(set) var feedback = SessionFeedback()
+    var message: String { feedback.message }
+    var recordingError: String? { feedback.failure }
     @Published var audioRunning = false
     @Published var authorization = "not determined"
     @Published var recentEvents: [String] = []
@@ -59,7 +61,7 @@ final class SessionController: ObservableObject {
         Task {
             await publisher.cleanupOrphans()
             ready = true
-            message = "Ready to monitor"
+            feedback.ready()
         }
     }
 
@@ -68,6 +70,7 @@ final class SessionController: ObservableObject {
         recorder = nil; latest = nil; frozen = false; sequence = 0; recentEvents = []
         history.reset(); elapsedSeconds = 0; remainingSeconds = Double(minutes * 60)
         activityStatus = "Starting"
+        feedback.begin()
         collector.reset()
         lastPublishedAt = -Double.infinity
         let start = DeviceClock.now
@@ -77,7 +80,7 @@ final class SessionController: ObservableObject {
         func info(_ name: String) -> String { Bundle.main.object(forInfoDictionaryKey: name).map { String(describing: $0) } ?? "unrecorded" }
         let metadata = SessionMetadata(id: id, startedAt: Date(), durationSeconds: duration, audioEnabled: audioEnabled, locationEnabled: locationEnabled, deviceModel: SessionRecorder.deviceModel(), operatingSystem: ProcessInfo.processInfo.operatingSystemVersionString, sourceCommit: info("MonitorSourceCommit"), appVersion: info("CFBundleShortVersionString"), buildNumber: info("CFBundleVersion"), bundleIdentifier: Bundle.main.bundleIdentifier ?? "unknown", extensionIdentifierBeforeSigning: "com.iamfreehandz.iosmonitor.diagnostics.activity", xcodeVersion: info("MonitorXcodeVersion"), sdk: info("MonitorSDK"), locationAuthorization: services.locationAuthorization, initialAudioRoute: services.audioRoute, initialLowPowerMode: ProcessInfo.processInfo.isLowPowerModeEnabled, backgroundRefreshStatus: String(UIApplication.shared.backgroundRefreshStatus.rawValue), signingMethod: "Sideloaded; record actual signing tool/version separately")
         do { recorder = try SessionRecorder(metadata: metadata) }
-        catch { message = "Recording could not start: \(error.localizedDescription)"; timeline = nil; return }
+        catch { feedback.recordFailure(operation: "Start recording", error: error); timeline = nil; return }
         running = true
         UIDevice.current.isBatteryMonitoringEnabled = true
         recordEvent("session_start", "id=\(id); duration=\(duration); audio=\(audioEnabled); location=\(locationEnabled)")
@@ -90,7 +93,6 @@ final class SessionController: ObservableObject {
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in Task { @MainActor in self?.tick() } }
         self.timer = timer
         RunLoop.main.add(timer, forMode: .common)
-        message = "Recording. Switch to the app you want to monitor."
     }
 
     func stop(reason: String = "user_stop") {
@@ -106,8 +108,12 @@ final class SessionController: ObservableObject {
         audioRunning = false
         UIDevice.current.isBatteryMonitoringEnabled = false
         let duration = reason == "duration_complete" ? timeline.duration : min(observedElapsed, timeline.duration)
-        do { _ = try recorder?.finish(reason: reason, duration: duration) }
-        catch { message = "Stopped; summary error: \(error.localizedDescription)" }
+        let closingRecorder = recorder
+        let failureDetail = feedback.failure
+        feedback.finish(completed: reason == "duration_complete") {
+            guard let closingRecorder else { throw CocoaError(.fileNoSuchFile) }
+            _ = try closingRecorder.finish(reason: reason, duration: duration, failure: failureDetail)
+        }
         let state = activityState(phase: reason == "duration_complete" ? "Complete" : "Stopped")
         publisher.finish(state) { [weak self] in
             guard let self else { return }
@@ -117,8 +123,6 @@ final class SessionController: ObservableObject {
         }
         sessions = SessionRecorder.saved()
         stopping = false
-        message = reason == "duration_complete" ? "Session complete. Recording saved in Sessions." : "Session stopped. Recording saved in Sessions."
-        if reason == "recording_error" { message = "Session stopped because recording failed. Check Diagnostics for details." }
     }
 
     func toggleFreeze() {
@@ -170,7 +174,7 @@ final class SessionController: ObservableObject {
         sequence += 1
         let sample = collector.sample(sequence: sequence, startedAt: timeline.start)
         do { try recorder?.append(sample) }
-        catch { message = "Recording error: \(error.localizedDescription)"; stop(reason: "recording_error"); return }
+        catch { feedback.recordFailure(operation: "Write sample", error: error); stop(reason: "recording_error"); return }
         latest = sample
         history.append(TrendPoint(id: sample.sequence, elapsedSeconds: sample.elapsedSeconds, cpuPercent: sample.cpu.reading.value, ramBytes: sample.ram.reading.value))
         audioRunning = services.audioRunning
@@ -201,7 +205,7 @@ final class SessionController: ObservableObject {
         guard let recorder, let timeline else { return }
         do { try recorder.event(name: name, detail: detail, elapsed: max(0, DeviceClock.now - timeline.start)) }
         catch {
-            message = "Event recording failed: \(error.localizedDescription)"
+            feedback.recordFailure(operation: "Write event", error: error)
             if running && !stopping { stop(reason: "recording_error") }
         }
     }

@@ -17,8 +17,8 @@ struct SessionsView: View {
                             Text(saved.startedAt?.formatted(date: .abbreviated, time: .shortened) ?? "Recovered recording").font(.headline)
                             if let summary = saved.summary {
                                 Text("\(MonitorFormat.duration(summary.recordingDurationSeconds)) · \(summary.sampleCount) samples").font(.subheadline).foregroundStyle(.secondary)
-                                Text(summary.tailUnknown ? "Interrupted · partial recording" : (summary.stopReason == "duration_complete" ? "Completed" : "Stopped"))
-                                    .font(.caption).foregroundStyle(summary.tailUnknown ? Color.orange : Color.secondary)
+                                Text(summary.tailUnknown ? "Interrupted · partial recording" : (summary.stopReason == "recording_error" ? "Recording error · partial session" : (summary.stopReason == "duration_complete" ? "Completed" : "Stopped")))
+                                    .font(.caption).foregroundStyle(summary.tailUnknown || summary.stopReason == "recording_error" ? Color.orange : Color.secondary)
                             } else { Text("Summary not available").font(.caption).foregroundStyle(.secondary) }
                         }.padding(.vertical, 4)
                     }.accessibilityIdentifier("saved-session")
@@ -49,6 +49,9 @@ struct SessionDetailView: View {
                     if summary.tailUnknown {
                         Text("This session was interrupted. The recording ends at its last observed sample; time after that is unknown. Coverage describes that observed part only.")
                             .font(.caption).foregroundStyle(.orange)
+                    }
+                    if summary.stopReason == "recording_error" {
+                        Text(summary.note).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
                     }
                 } else {
                     Text("The saved files can still be exported even when a summary cannot be read.")
