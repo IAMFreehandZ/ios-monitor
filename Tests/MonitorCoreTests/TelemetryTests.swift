@@ -92,4 +92,26 @@ final class TelemetryTests: XCTestCase {
         let readings = [MetricReading(status: .ok, value: 0, reason: nil), MetricReading(status: .unavailable, value: nil, reason: "host_processor_info: 5")]
         XCTAssertEqual(try JSONDecoder().decode([MetricReading].self, from: JSONEncoder().encode(readings)), readings)
     }
+
+    func testRecordingFailureBlocksLaterServiceActivation() {
+        let gate = CallbackGate()
+        var activations = 0
+        gate.run(stages: [
+            { gate.cancel() }, // Recording sink failure calls Stop synchronously.
+            { activations += 1 }
+        ])
+        XCTAssertEqual(activations, 0)
+    }
+
+    func testStopDuringAudioCallbackBlocksLocationPermissionRequest() {
+        let gate = CallbackGate()
+        var startedAudio = false
+        var locationRequests = 0
+        gate.run(stages: [
+            { startedAudio = true; gate.cancel() },
+            { locationRequests += 1 }
+        ])
+        XCTAssertTrue(startedAudio)
+        XCTAssertEqual(locationRequests, 0)
+    }
 }

@@ -96,3 +96,9 @@ public struct ContinuitySummary: Codable, Sendable {
         p95GapSeconds = sorted.isEmpty ? 0 : sorted[max(0, Int(ceil(Double(sorted.count) * 0.95)) - 1)]
     }
 }
+
+public final class CallbackGate {
+    public init() {}
+    public func cancel() {}
+    public func run(stages: [() -> Void]) { stages.forEach { $0() } }
+}
