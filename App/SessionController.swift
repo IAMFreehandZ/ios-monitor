@@ -27,6 +27,7 @@ final class SessionController: ObservableObject {
     private var lastPublishedAt = -Double.infinity
     private var stopping = false
     private var observations: [NSObjectProtocol] = []
+    private let modeTransition = CallbackGate()
 
     init() {
         SessionRecorder.recoverInterrupted()
@@ -81,6 +82,7 @@ final class SessionController: ObservableObject {
     func stop(reason: String = "user_stop") {
         guard running, !stopping, let timeline else { return }
         stopping = true; running = false; ready = false; frozen = false
+        modeTransition.cancel()
         timer?.invalidate(); timer = nil
         let observedElapsed = max(0, DeviceClock.now - timeline.start)
         recordEvent("session_stop", "reason=\(reason); observedElapsed=\(observedElapsed)")
@@ -110,8 +112,13 @@ final class SessionController: ObservableObject {
 
     private func applyModes() {
         guard running else { return }
-        recordEvent("background_preferences", "audio=\(audioEnabled); location=\(locationEnabled)")
-        services.configure(audio: audioEnabled, location: locationEnabled)
+        modeTransition.run(stages: [
+            { self.recordEvent("background_preferences", "audio=\(self.audioEnabled); location=\(self.locationEnabled)") },
+            {
+                guard self.running else { return }
+                self.services.configure(audio: self.audioEnabled, location: self.locationEnabled)
+            }
+        ])
         guard running else { services.stop(); return }
         audioRunning = services.audioRunning
         authorization = services.locationAuthorization

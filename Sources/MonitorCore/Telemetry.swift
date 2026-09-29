@@ -98,7 +98,15 @@ public struct ContinuitySummary: Codable, Sendable {
 }
 
 public final class CallbackGate {
+    private var generation: UInt64 = 0
     public init() {}
-    public func cancel() {}
-    public func run(stages: [() -> Void]) { stages.forEach { $0() } }
+    public func cancel() { generation &+= 1 }
+    public func run(stages: [() -> Void]) {
+        generation &+= 1
+        let token = generation
+        for stage in stages {
+            guard token == generation else { return }
+            stage()
+        }
+    }
 }

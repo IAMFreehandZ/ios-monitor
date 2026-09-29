@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreLocation
 import Foundation
+import MonitorCore
 
 @MainActor
 final class BackgroundServices: NSObject, CLLocationManagerDelegate {
@@ -15,6 +16,7 @@ final class BackgroundServices: NSObject, CLLocationManagerDelegate {
     private var interrupted = false
     private var recoveryAttempts = 0
     private var requestedAlways = false
+    private let configuration = CallbackGate()
 
     var audioRunning: Bool { engine.isRunning && player.isPlaying && audioWanted }
     var locationAuthorization: String {
@@ -54,21 +56,28 @@ final class BackgroundServices: NSObject, CLLocationManagerDelegate {
     }
 
     func configure(audio: Bool, location enabledLocation: Bool) {
-        if audio != audioWanted {
-            audioWanted = audio
-            recoveryAttempts = 0
-            if audio { startAudio(); if audioWanted { startHealthTimer() } } else { stopAudio() }
-        }
-        if enabledLocation != locationWanted {
-            locationWanted = enabledLocation
-            if enabledLocation { enableLocation() } else {
-                location.stopUpdatingLocation(); location.allowsBackgroundLocationUpdates = false
-                event?("location_stopped", "User preference or session ended")
+        configuration.run(stages: [
+            {
+                if audio != self.audioWanted {
+                    self.audioWanted = audio
+                    self.recoveryAttempts = 0
+                    if audio { self.startAudio(); if self.audioWanted { self.startHealthTimer() } } else { self.stopAudio() }
+                }
+            },
+            {
+                if enabledLocation != self.locationWanted {
+                    self.locationWanted = enabledLocation
+                    if enabledLocation { self.enableLocation() } else {
+                        self.location.stopUpdatingLocation(); self.location.allowsBackgroundLocationUpdates = false
+                        self.event?("location_stopped", "User preference or session ended")
+                    }
+                }
             }
-        }
+        ])
     }
 
     func stop() {
+        configuration.cancel()
         audioWanted = false; locationWanted = false; interrupted = false
         stopAudio()
         location.stopUpdatingLocation(); location.allowsBackgroundLocationUpdates = false
