@@ -1,0 +1,85 @@
+import XCTest
+
+final class MonitorUITests: XCTestCase {
+    @MainActor
+    func testSessionLifecycleAndPreferencesSurviveRelaunch() throws {
+        let app = XCUIApplication()
+        app.launch()
+        let settings = app.tabBars.buttons["Settings"]
+        guard settings.waitForExistence(timeout: 8) else {
+            XCTFail("The monitoring app must expose Settings navigation")
+            return
+        }
+        settings.tap()
+        let location = app.switches["location-mode"]
+        XCTAssertTrue(location.waitForExistence(timeout: 5))
+        setSwitch(location, enabled: false)
+        let audio = app.switches["audio-mode"]
+        setSwitch(audio, enabled: false)
+        capture(app, "Settings")
+        app.tabBars.buttons["Sessions"].tap()
+        let initialRecordings = app.buttons.matching(identifier: "saved-session").count
+
+        app.terminate()
+        app.launch()
+        app.tabBars.buttons["Settings"].tap()
+        XCTAssertEqual(app.switches["location-mode"].value as? String, "0")
+        XCTAssertEqual(app.switches["audio-mode"].value as? String, "0")
+        app.tabBars.buttons["Monitor"].tap()
+        let start = app.buttons["start-session"]
+        XCTAssertTrue(start.waitForExistence(timeout: 8))
+        XCTAssertTrue(start.isEnabled)
+        start.tap()
+        let stop = app.buttons["stop-session"]
+        XCTAssertTrue(stop.waitForExistence(timeout: 5))
+        let count = app.staticTexts["sample-count"]
+        let advancing = NSPredicate { _, _ in
+            Int(count.label.replacingOccurrences(of: " samples", with: "")) ?? 0 >= 3
+        }
+        expectation(for: advancing, evaluatedWith: nil)
+        waitForExpectations(timeout: 8)
+        capture(app, "Monitor")
+        stop.tap()
+        XCTAssertTrue(start.waitForExistence(timeout: 8))
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: start)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 8), .completed)
+
+        app.terminate()
+        app.launch()
+
+        app.tabBars.buttons["Sessions"].tap()
+        let recording = app.buttons.matching(identifier: "saved-session").firstMatch
+        XCTAssertTrue(recording.waitForExistence(timeout: 5))
+        recording.tap()
+        XCTAssertTrue(app.buttons["export-session"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["summary-sample-count"].exists)
+        capture(app, "Session")
+        app.navigationBars["Session"].buttons.element(boundBy: 0).tap()
+
+        app.tabBars.buttons["Monitor"].tap()
+        start.tap()
+        XCTAssertTrue(stop.waitForExistence(timeout: 5))
+        stop.tap()
+        app.tabBars.buttons["Sessions"].tap()
+        XCTAssertEqual(app.buttons.matching(identifier: "saved-session").count, initialRecordings + 2)
+    }
+
+    @MainActor
+    private func setSwitch(_ element: XCUIElement, enabled: Bool) {
+        let expected = enabled ? "1" : "0"
+        if element.value as? String != expected {
+            // SwiftUI exposes the whole labelled row as the switch frame.
+            // Target the actual control at the trailing edge of that row.
+            element.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        }
+        XCTAssertEqual(element.value as? String, expected)
+    }
+
+    @MainActor
+    private func capture(_ app: XCUIApplication, _ name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+}

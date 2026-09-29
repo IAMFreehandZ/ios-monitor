@@ -1,0 +1,137 @@
+name: Build iOS Monitor
+
+on:
+  push:
+    branches: ["main", "tests/test-spec"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+          xcodebuild -showsdks
+      - name: Core tests
+        run: |
+          set -o pipefail
+          swift test 2>&1 | tee core-tests.log
+      - name: IPA validator tests
+        run: python3 -m unittest discover -s scripts -p 'test_validate_ipa.py' -v
+      - name: Install pinned XcodeGen
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/xcodegen"
+          curl --fail --location --retry 3 https://github.com/yonaskolb/XcodeGen/releases/download/2.46.0/xcodegen.zip -o "$RUNNER_TEMP/xcodegen.zip"
+          printf '%s  %s\n' '4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806' "$RUNNER_TEMP/xcodegen.zip" | shasum -a 256 -c -
+          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP/xcodegen"
+          generator=$(find "$RUNNER_TEMP/xcodegen" -type f -name xcodegen | head -n 1)
+          chmod +x "$generator"
+          "$generator" --version
+          "$generator" generate
+      - name: Build physical iPhone app and extension
+        run: |
+          set -euo pipefail
+          xcodebuild -project MonitorDiagnostics.xcodeproj -scheme MonitorDiagnostics -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" MONITOR_SOURCE_COMMIT="$GITHUB_SHA" MONITOR_XCODE_VERSION="$(xcodebuild -version | tr '\n' ' ')" MONITOR_SDK="$(xcrun --sdk iphoneos --show-sdk-version)" build 2>&1 | tee build.log
+      - name: Package and inspect IPA
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/Payload
+          ditto build/DerivedData/Build/Products/Release-iphoneos/MonitorDiagnostics.app artifacts/Payload/MonitorDiagnostics.app
+          (cd artifacts && zip -q -r iOS-Monitor.ipa Payload)
+          python3 scripts/validate_ipa.py artifacts/iOS-Monitor.ipa > artifacts/ipa-validation.json
+          cat artifacts/ipa-validation.json
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          provenance = {key: os.environ.get(key) for key in ['GITHUB_SHA', 'GITHUB_RUN_ID', 'GITHUB_RUN_NUMBER', 'ImageOS', 'ImageVersion']}
+          provenance['xcode'] = subprocess.check_output(['xcodebuild', '-version'], text=True).strip()
+          provenance['sdk'] = subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-version'], text=True).strip()
+          Path('artifacts/build-provenance.json').write_text(json.dumps(provenance, indent=2))
+          PY
+          printf 'Native arm64 iOS Monitor. JIT is not required. This IPA is unsigned: sign and install directly with SideStore or AltStore. Keep the MonitorActivity extension and register an App ID for each extension.\n' > artifacts/README.txt
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: iOS-Monitor
+          path: |
+            artifacts/iOS-Monitor.ipa
+            artifacts/ipa-validation.json
+            artifacts/build-provenance.json
+            artifacts/README.txt
+          if-no-files-found: error
+          retention-days: 30
+      - name: Test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-test-log
+          path: |
+            core-tests.log
+            build.log
+          retention-days: 14
+  simulator:
+    needs: diagnostic
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate project
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/xcodegen"
+          curl --fail --location --retry 3 https://github.com/yonaskolb/XcodeGen/releases/download/2.46.0/xcodegen.zip -o "$RUNNER_TEMP/xcodegen.zip"
+          printf '%s  %s\n' '4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806' "$RUNNER_TEMP/xcodegen.zip" | shasum -a 256 -c -
+          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP/xcodegen"
+          generator=$(find "$RUNNER_TEMP/xcodegen" -type f -name xcodegen | head -n 1)
+          chmod +x "$generator"
+          "$generator" generate
+      - name: Select iPhone simulator
+        run: |
+          set -euo pipefail
+          xcrun simctl list devices available --json > devices.json
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          devices = [d for runtime, items in json.loads(Path('devices.json').read_text())['devices'].items() if 'iOS' in runtime for d in items if d['name'].startswith('iPhone') and d.get('isAvailable')]
+          devices.sort(key=lambda d: (d['name'] != 'iPhone 17 Pro Max', d['name']))
+          if not devices: raise SystemExit('No available iPhone simulator')
+          chosen = devices[0]
+          print(chosen)
+          with open(os.environ['GITHUB_ENV'], 'a') as env: env.write('SIMULATOR_UDID=' + chosen['udid'] + '\n')
+          PY
+      - name: UI smoke test
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          xcodebuild -project MonitorDiagnostics.xcodeproj -scheme MonitorDiagnostics -configuration Debug -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" -derivedDataPath build/Simulator -resultBundlePath build/Smoke.xcresult -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO test 2>&1 | tee ui-tests.log
+      - name: Export screenshots
+        if: always()
+        run: |
+          if [ -d build/Smoke.xcresult ]; then
+            xcrun xcresulttool export attachments --path build/Smoke.xcresult --output-path build/screenshots
+          fi
+      - name: UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulator-ui-evidence
+          path: |
+            ui-tests.log
+            build/screenshots
+            build/Smoke.xcresult
+          retention-days: 14
