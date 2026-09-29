@@ -1,7 +1,7 @@
 # iOS Monitor test specification
 
 Date: 2026-09-29  
-Status: Draft for review. The tests in this document have not been implemented or executed.  
+Status: Core tests and diagnostic builds implemented; physical-device qualification is partial. The monitor base changes the defaults below using the user's background-mode comparison. Case completion must be supported by run evidence.
 Repository: [IAMFreehandZ/ios-monitor](https://github.com/IAMFreehandZ/ios-monitor)  
 Development branch: `tests/test-spec`  
 Primary device: iPhone 17 Pro Max, iOS 27. Record the exact OS build for every device run.
@@ -10,12 +10,12 @@ Primary device: iPhone 17 Pro Max, iOS 27. Record the exact OS build for every d
 
 The app records iPhone system vitals during short to medium debugging sessions and displays recent measurements in a Live Activity while another app is open. Builds and automated tests run on GitHub Actions because the development environment is Windows. The device app is sideloaded.
 
-The first tests must establish that the requested counters are accessible on the physical phone and that silent audio can sustain actual sampling. A moving timer or a visible Live Activity is insufficient evidence of execution. Each recording needs distinct sample sequence numbers, timestamps, raw counters, and execution events.
+Tests establish counter access and actual background sampling for each selected mode. A moving timer or a visible Live Activity is insufficient evidence of execution. Each recording needs distinct sample sequence numbers, timestamps, raw counters, and execution events.
 
 Success means:
 
 1. CPU and RAM measurements come from identified device counters and use verified calculations.
-2. Samples continue during ordinary use of another app with background audio enabled.
+2. Samples continue during ordinary use of another app under the selected background mode.
 3. The foreground app's audio and media controls continue to work.
 4. The Live Activity makes the age and availability of its measurements clear.
 5. Stopping or completing a session releases the background services.
@@ -30,14 +30,14 @@ These values make the tests concrete. They are proposed product choices and acce
 | Recording durations | 5, 15, 30, and 60 minutes; default 15 minutes; manual Stop available |
 | Sampling interval | 1 second, scheduled using a monotonic clock |
 | Live Activity submission interval | At most one ordinary update every 2 seconds; terminal updates may be immediate |
-| Background audio | Enabled for an active recording by default; user can disable it |
-| Background location | Disabled by default; optional independent switch |
+| Background audio | Disabled by default; optional independent backup switch |
+| Background location | Enabled for an active recording by default; user can disable it |
 | Silent audio behavior | Loop silence with an audio session that mixes with other apps |
 | Location behavior | Request coarse accuracy, allow background updates, and test automatic-pause prevention |
 | Permission behavior | Request location only after its switch is enabled; preserve the user's audio preference if location is refused |
 | After app relaunch | Close an unfinished recording as interrupted; a new recording requires Start |
 | Stale content | Publish a stale date 5 seconds after the sample timestamp; render an explicit stale state |
-| Unsupported readings | Display unavailable, with a reason in diagnostics; zero remains a valid measured value |
+| Unsupported readings | Omit GPU, Neural Engine and device disk throughput from the app; failures of supported collectors retain their reason and real zero remains valid |
 
 With both background switches disabled, the app records while execution is available and reports gaps when resumed. That profile makes no persistence promise.
 
@@ -147,7 +147,7 @@ For an ordinary uninterrupted session, the proposed sampling target is:
 - Collector failures are reported separately from execution gaps; a sequence of failed API calls does not establish usable metric readings.
 - Declared interruptions are evaluated separately, with a proposed recovery target of 5 seconds after iOS permits resumption. Unknown gaps cannot be excluded to improve the result.
 
-Counts refer to attempts on the recording schedule, not bursts of catch-up samples. Repeat the ordinary audio-only tests on three independent 15-minute recordings before calling that profile reliable. Complete at least one 60-minute recording to qualify medium sessions.
+Counts refer to attempts on the recording schedule, not bursts of catch-up samples. Repeat the chosen profile on three independent 15-minute recordings before calling it reliable. Complete at least one 60-minute recording to qualify medium sessions. The audio-only cases below remain comparison tests; DEV-08 covers the current location-only default.
 
 | ID | Procedure | Expected result / evidence |
 | --- | --- | --- |
@@ -189,7 +189,7 @@ Battery evaluation uses paired 60-minute baseline/monitoring runs, repeated thre
 3. **Session qualification:** Repeat DEV-02 through DEV-04 three times; complete DEV-05 through DEV-17 with a result for each listed variant. Qualify audio only, location only, and combined profiles separately. An optional profile that fails can remain disabled with the finding documented.
 4. **Overhead review:** DEV-18 and CI-05. Decide whether to change defaults or intervals based on the measured cost.
 
-The default background-audio profile is ready for personal use when its core counters, ordinary persistence, audio coexistence, stale presentation, and cleanup meet the accepted targets, the automated suites pass, and interrupted/degraded runs remain truthful. Optional-mode failures must be reflected in the available settings and qualification summary. No test implementation or device result is present in this spec-only change.
+The default location profile is qualified when its core counters, ordinary persistence, audio coexistence, stale presentation, and cleanup meet the accepted targets, the automated suites pass, and interrupted/degraded runs remain truthful. Optional-mode failures must be reflected in settings and the qualification summary. The user's successful location comparisons establish a working candidate; they do not complete the longer-session or overhead procedures.
 
 Use [RUN_TEMPLATE.md](RUN_TEMPLATE.md) to record evidence. Leave a case Not run or Blocked until its required environment and evidence exist.
 

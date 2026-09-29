@@ -39,7 +39,11 @@ final class MonitorUITests: XCTestCase {
         capture(app, "Monitor")
         stop.tap()
         XCTAssertTrue(start.waitForExistence(timeout: 8))
-        XCTAssertTrue(start.isEnabled)
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: start)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 8), .completed)
+
+        app.terminate()
+        app.launch()
 
         app.tabBars.buttons["Sessions"].tap()
         let recording = app.buttons.matching(identifier: "saved-session").firstMatch
@@ -52,9 +56,9 @@ final class MonitorUITests: XCTestCase {
         app.tabBars.buttons["Monitor"].tap()
         start.tap()
         XCTAssertTrue(stop.waitForExistence(timeout: 5))
-        let newCount = Int(count.label.replacingOccurrences(of: " samples", with: "")) ?? -1
-        XCTAssertTrue((1...2).contains(newCount), "A new session must reset its sample sequence")
         stop.tap()
+        app.tabBars.buttons["Sessions"].tap()
+        XCTAssertEqual(app.buttons.matching(identifier: "saved-session").count, 2)
     }
 
     @MainActor

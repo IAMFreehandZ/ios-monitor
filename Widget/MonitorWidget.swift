@@ -12,7 +12,7 @@ struct MonitorLiveActivity: Widget {
         ActivityConfiguration(for: MonitorAttributes.self) { context in
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Label("iPhone Monitor", systemImage: "waveform.path.ecg").font(.headline)
+                    Label("iOS Monitor", systemImage: "waveform.path.ecg").font(.headline)
                     Spacer()
                     Text(context.isStale ? "Stale" : context.state.phase).font(.caption).foregroundStyle(context.isStale ? .orange : .secondary)
                 }

@@ -56,6 +56,8 @@ struct SavedSession: Identifiable {
     var id: String
     var folder: URL
     var summary: RecordingSummary?
+    var metadata: SessionMetadata?
+    var startedAt: Date? { metadata?.startedAt ?? summary?.endedAt }
     var files: [URL] { ["metadata.json", "recording.jsonl", "summary.json"].map { folder.appendingPathComponent($0) }.filter { FileManager.default.fileExists(atPath: $0.path) } }
 }
 
@@ -143,8 +145,9 @@ final class SessionRecorder {
         let folders = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.creationDateKey])) ?? []
         return folders.map { folder in
             let summary = (try? Data(contentsOf: folder.appendingPathComponent("summary.json"))).flatMap { try? decoder().decode(RecordingSummary.self, from: $0) }
-            return SavedSession(id: folder.lastPathComponent, folder: folder, summary: summary)
-        }.sorted { ($0.summary?.endedAt ?? .distantPast) > ($1.summary?.endedAt ?? .distantPast) }
+            let metadata = (try? Data(contentsOf: folder.appendingPathComponent("metadata.json"))).flatMap { try? decoder().decode(SessionMetadata.self, from: $0) }
+            return SavedSession(id: folder.lastPathComponent, folder: folder, summary: summary, metadata: metadata)
+        }.sorted { ($0.startedAt ?? .distantPast) > ($1.startedAt ?? .distantPast) }
     }
 
     static func deviceModel() -> String {

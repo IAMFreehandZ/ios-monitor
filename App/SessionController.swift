@@ -7,15 +7,22 @@ final class SessionController: ObservableObject {
     @Published var running = false
     @Published var ready = false
     @Published var frozen = false
-    @Published var minutes = 15
-    @Published var audioEnabled = true { didSet { applyModes() } }
-    @Published var locationEnabled = false { didSet { applyModes() } }
+    @Published var minutes = 15 { didSet { savePreferences() } }
+    @Published var audioEnabled = false { didSet { savePreferences(); applyModes() } }
+    @Published var locationEnabled = true { didSet { savePreferences(); applyModes() } }
     @Published var latest: DeviceSample?
     @Published var sessions: [SavedSession] = []
-    @Published var message = "Preparing diagnostic services"
+    @Published var message = "Preparing monitor"
     @Published var audioRunning = false
     @Published var authorization = "not determined"
     @Published var recentEvents: [String] = []
+    @Published private(set) var history = TrendHistory()
+    @Published private(set) var elapsedSeconds = 0.0
+    @Published private(set) var remainingSeconds = 0.0
+    @Published private(set) var activityStatus = "Not started"
+
+    private let defaults: UserDefaults
+    private static let preferencesKey = "monitor.preferences.v1"
 
     private let collector = DeviceCollector()
     private let services = BackgroundServices()
@@ -29,7 +36,12 @@ final class SessionController: ObservableObject {
     private var observations: [NSObjectProtocol] = []
     private let modeTransition = CallbackGate()
 
-    init() {
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        let preferences = MonitorPreferences.load(defaults.data(forKey: Self.preferencesKey))
+        minutes = preferences.durationMinutes
+        audioEnabled = preferences.audioEnabled
+        locationEnabled = preferences.locationEnabled
         SessionRecorder.recoverInterrupted()
         sessions = SessionRecorder.saved()
         services.event = { [weak self] name, detail in self?.recordEvent(name, detail) }
@@ -47,13 +59,15 @@ final class SessionController: ObservableObject {
         Task {
             await publisher.cleanupOrphans()
             ready = true
-            message = "Ready. Default profile: audio on, location off."
+            message = "Ready to monitor"
         }
     }
 
     func start() {
         guard ready, !running, !stopping else { return }
         recorder = nil; latest = nil; frozen = false; sequence = 0; recentEvents = []
+        history.reset(); elapsedSeconds = 0; remainingSeconds = Double(minutes * 60)
+        activityStatus = "Starting"
         collector.reset()
         lastPublishedAt = -Double.infinity
         let start = DeviceClock.now
@@ -85,6 +99,8 @@ final class SessionController: ObservableObject {
         modeTransition.cancel()
         timer?.invalidate(); timer = nil
         let observedElapsed = max(0, DeviceClock.now - timeline.start)
+        elapsedSeconds = min(observedElapsed, timeline.duration)
+        remainingSeconds = 0
         recordEvent("session_stop", "reason=\(reason); observedElapsed=\(observedElapsed)")
         services.stop()
         audioRunning = false
@@ -101,7 +117,8 @@ final class SessionController: ObservableObject {
         }
         sessions = SessionRecorder.saved()
         stopping = false
-        message = "Session ended: \(reason). Share its recording from Saved sessions."
+        message = reason == "duration_complete" ? "Session complete. Recording saved in Sessions." : "Session stopped. Recording saved in Sessions."
+        if reason == "recording_error" { message = "Session stopped because recording failed. Check Diagnostics for details." }
     }
 
     func toggleFreeze() {
@@ -124,9 +141,28 @@ final class SessionController: ObservableObject {
         authorization = services.locationAuthorization
     }
 
+    private func savePreferences() {
+        let preferences = MonitorPreferences(durationMinutes: minutes, locationEnabled: locationEnabled, audioEnabled: audioEnabled)
+        if let data = try? JSONEncoder().encode(preferences) { defaults.set(data, forKey: Self.preferencesKey) }
+    }
+
+    var backgroundMode: String {
+        if locationEnabled && (authorization == "always" || authorization == "when in use") {
+            return audioEnabled ? "Coarse location + silent audio" : "Coarse location"
+        }
+        if audioRunning { return "Silent audio" }
+        return locationEnabled ? "Location permission needed" : "Foreground only"
+    }
+
+    var locationNeedsPermission: Bool {
+        locationEnabled && authorization != "always" && authorization != "when in use"
+    }
+
     private func tick() {
         guard running, let timeline else { return }
         let now = DeviceClock.now
+        elapsedSeconds = min(max(0, now - timeline.start), timeline.duration)
+        remainingSeconds = timeline.remaining(at: now)
         if timeline.expired(at: now) { stop(reason: "duration_complete"); return }
         guard !frozen else { return }
         // Foreground callbacks and timer callbacks must not create burst catch-up samples.
@@ -136,6 +172,7 @@ final class SessionController: ObservableObject {
         do { try recorder?.append(sample) }
         catch { message = "Recording error: \(error.localizedDescription)"; stop(reason: "recording_error"); return }
         latest = sample
+        history.append(TrendPoint(id: sample.sequence, elapsedSeconds: sample.elapsedSeconds, cpuPercent: sample.cpu.reading.value, ramBytes: sample.ram.reading.value))
         audioRunning = services.audioRunning
         authorization = services.locationAuthorization
         if sample.monotonicTime - lastPublishedAt >= 2 {
@@ -149,6 +186,14 @@ final class SessionController: ObservableObject {
     }
 
     private func recordEvent(_ name: String, _ detail: String) {
+        switch name {
+        case "activity_started": activityStatus = "Enabled"
+        case "activity_unavailable": activityStatus = "Disabled in iOS"
+        case "activity_start_failed": activityStatus = "Could not start"
+        case "activity_removed": activityStatus = "Dismissed"
+        case "activity_end_completed": activityStatus = "Ended"
+        default: break
+        }
         recentEvents.append("\(name): \(detail)")
         if recentEvents.count > 30 { recentEvents.removeFirst(recentEvents.count - 30) }
         audioRunning = services.audioRunning

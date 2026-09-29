@@ -12,9 +12,9 @@
 **Consumes:** Existing telemetry types and Swift package.
 **Produces:** `MonitorPreferences`, `TrendHistory` and behavioral core tests.
 
-- [ ] Write tests for default background choices, settings round trip and invalid input recovery, bounded history, valid zero, missing values and gaps.
-- [ ] Run `swift test` on GitHub with minimal compiling scaffolds. Expected: new assertions fail for the missing behavior; existing tests pass.
-- [ ] Implement preferences decoding and bounded history. Expected next CI: all core tests pass.
+- [x] Write tests for default background choices, settings round trip and invalid input recovery, bounded history, valid zero, missing values and gaps.
+- [x] Run `swift test` on GitHub with minimal compiling scaffolds. Expected: new assertions fail for the missing behavior; existing tests pass.
+- [x] Implement preferences decoding and bounded history. Expected next CI: all core tests pass.
 
 ## Task 2: Native application
 

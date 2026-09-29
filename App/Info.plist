@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-    <key>CFBundleDisplayName</key><string>Monitor Diagnostics</string>
+    <key>CFBundleDisplayName</key><string>iOS Monitor</string>
     <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
     <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
     <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
@@ -15,7 +15,7 @@
     <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
     <key>UIBackgroundModes</key><array><string>audio</string><string>location</string></array>
     <key>NSSupportsLiveActivities</key><true/>
-    <key>NSLocationWhenInUseUsageDescription</key><string>Optional coarse location updates help test background sampling during your monitoring session. Coordinates are not saved.</string>
+    <key>NSLocationWhenInUseUsageDescription</key><string>Coarse location updates keep monitoring available while you use other apps during a session. Coordinates are not saved.</string>
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key><string>Allow optional coarse background updates while monitoring another app. Coordinates are not saved.</string>
     <key>UIFileSharingEnabled</key><true/>
     <key>LSSupportsOpeningDocumentsInPlace</key><true/>

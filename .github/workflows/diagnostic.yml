@@ -1,8 +1,10 @@
-name: Diagnostic IPA
+name: Build iOS Monitor
 
 on:
   push:
-    branches: ["tests/test-spec"]
+    branches: ["main", "tests/test-spec"]
+  pull_request:
+    branches: ["main"]
   workflow_dispatch:
 
 permissions:
@@ -48,8 +50,8 @@ jobs:
           set -euo pipefail
           mkdir -p artifacts/Payload
           ditto build/DerivedData/Build/Products/Release-iphoneos/MonitorDiagnostics.app artifacts/Payload/MonitorDiagnostics.app
-          (cd artifacts && zip -q -r iOS-Monitor-Diagnostics.ipa Payload)
-          python3 scripts/validate_ipa.py artifacts/iOS-Monitor-Diagnostics.ipa > artifacts/ipa-validation.json
+          (cd artifacts && zip -q -r iOS-Monitor.ipa Payload)
+          python3 scripts/validate_ipa.py artifacts/iOS-Monitor.ipa > artifacts/ipa-validation.json
           cat artifacts/ipa-validation.json
           python3 - <<'PY'
           import json, os, subprocess
@@ -59,13 +61,13 @@ jobs:
           provenance['sdk'] = subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-version'], text=True).strip()
           Path('artifacts/build-provenance.json').write_text(json.dumps(provenance, indent=2))
           PY
-          printf 'Native arm64 diagnostic app. JIT is not required. This IPA is unsigned: sign and install with SideStore or AltStore. Keep the MonitorActivity extension when prompted.\n' > artifacts/README.txt
+          printf 'Native arm64 iOS Monitor. JIT is not required. This IPA is unsigned: sign and install directly with SideStore or AltStore. Keep the MonitorActivity extension and register an App ID for each extension.\n' > artifacts/README.txt
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: iOS-Monitor-Diagnostics
+          name: iOS-Monitor
           path: |
-            artifacts/iOS-Monitor-Diagnostics.ipa
+            artifacts/iOS-Monitor.ipa
             artifacts/ipa-validation.json
             artifacts/build-provenance.json
             artifacts/README.txt
