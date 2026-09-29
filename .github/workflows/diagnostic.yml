@@ -1,0 +1,35 @@
+name: Diagnostic IPA
+
+on:
+  push:
+    branches: ["tests/test-spec"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+          xcodebuild -showsdks
+      - name: Core tests
+        run: |
+          set -o pipefail
+          swift test 2>&1 | tee core-tests.log
+      - name: Test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-test-log
+          path: core-tests.log
+          retention-days: 14
